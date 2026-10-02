@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Billionaire Arcade</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root { --bg1:#1b0f6b; --bg2:#2a1aa8; --accent:#ffd23f; --text:#fff; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg1); color: var(--text);
+    font-family: 'Press Start 2P', monospace; }
+  canvas { display: block; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  canvas.hover { cursor: pointer; }
+  #ui { position: fixed; inset: 0; pointer-events: none; }
+  h1 { position: absolute; top: 24px; width: 100%; text-align: center; font-size: clamp(14px, 3vw, 28px);
+    color: var(--accent); text-shadow: 3px 3px 0 #000; letter-spacing: 2px;
+    opacity: 0; transform: translateY(-20px); transition: all .8s ease .4s; }
+  h1.show { opacity: 1; transform: none; }
+  .arrow { pointer-events: auto; position: absolute; top: 50%; transform: translateY(-50%);
+    width: 64px; height: 64px; border: 4px solid #000; background: var(--accent); color: #000;
+    font: inherit; font-size: 22px; cursor: pointer; box-shadow: 4px 4px 0 #000;
+    transition: transform .1s; }
+  .arrow:hover { transform: translateY(-50%) scale(1.1); }
+  .arrow:active { transform: translateY(-50%) scale(.95); box-shadow: 1px 1px 0 #000; }
+  #prev { left: 16px; } #next { right: 16px; }
+  #label { position: absolute; bottom: 80px; width: 100%; text-align: center; font-size: clamp(12px, 2.4vw, 20px);
+    text-shadow: 3px 3px 0 #000; }
+  #hint { position: absolute; bottom: 32px; width: 100%; text-align: center; font-size: 10px; opacity: .7;
+    padding: 0 16px; line-height: 1.6; }
+  @media (max-width: 600px) { .arrow { width: 48px; height: 48px; font-size: 16px; } }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="ui">
+  <h1 id="title">BILLIONAIRE ARCADE</h1>
+  <button class="arrow" id="prev" aria-label="Anterior">◀</button>
+  <button class="arrow" id="next" aria-label="Próximo">▶</button>
+  <div id="label"></div>
+  <div id="hint">ARRASTE PARA GIRAR · GIRE RÁPIDO PARA SPIN · CLIQUE NA CABEÇA PARA JOGAR</div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ---------- CONFIG ----------
+const CHARACTERS = [
+  { name: 'BILL JUMPS',      img: 'img/gates.webp', hair: '#6b4a32', skin: '#e8b99a',
+    url: 'https://gilabarreto.github.io/bill-jumps/' },
+  { name: 'SPACE MUSKETEER', img: 'img/musk.webp', hair: '#2a211c', skin: '#e6b596',
+    url: 'https://gilabarreto.github.io/space-musketeer/' },
+];
+
+// ---------- SCENE ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 0, 9);
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(3, 4, 6); scene.add(key);
+const rim = new THREE.DirectionalLight(0x8899ff, 0.8); rim.position.set(-4, 2, -5); scene.add(rim);
+
+// Tiled background (original pattern)
+function makeBgTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1b0f6b'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 3000; i++) { // felt noise
+    g.fillStyle = `rgba(${80 + Math.random()*60},${60 + Math.random()*60},255,${Math.random()*0.15})`;
+    g.fillRect(Math.random()*256, Math.random()*256, 2, 2);
+  }
+  g.font = 'bold 34px "Press Start 2P", monospace'; g.textAlign = 'center';
+  g.fillStyle = '#4a7bff'; g.fillText('$$$', 128, 110);
+  g.fillStyle = '#ff4d4d'; g.font = 'bold 20px "Press Start 2P", monospace'; g.fillText('ARCADE', 128, 160);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6, 4); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const bgTex = makeBgTexture();
+const bg = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), new THREE.MeshBasicMaterial({ map: bgTex }));
+bg.position.z = -15; scene.add(bg);
+
+// ---------- HEAD BUILDER ----------
+function placeholderFace(ch) {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = ch.skin; g.fillRect(0, 0, 512, 512);
+  g.fillStyle = ch.hair; g.fillRect(0, 0, 512, 120);
+  g.fillStyle = '#fff'; g.beginPath(); g.ellipse(190, 230, 34, 24, 0, 0, 7); g.ellipse(322, 230, 34, 24, 0, 0, 7); g.fill();
+  g.fillStyle = '#3a6fb0'; g.beginPath(); g.arc(190, 232, 14, 0, 7); g.arc(322, 232, 14, 0, 7); g.fill();
+  g.strokeStyle = '#a0634a'; g.lineWidth = 8; g.beginPath(); g.arc(256, 330, 50, 0.2, Math.PI - 0.2); g.stroke();
+  g.fillStyle = '#000'; g.font = '20px "Press Start 2P", monospace'; g.textAlign = 'center';
+  g.fillText('add ' + ch.img, 256, 460);
+  return c;
+}
+
+function loadFaceTexture(ch) {
+  const tex = new THREE.CanvasTexture(placeholderFace(ch));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const img = new Image();
+  img.onload = () => {
+    // Compose over skin tone so transparent PNGs blend into the head.
+    // Draw into the placeholder's own canvas: once uploaded, the GPU texture
+    // can't change size, so swapping in a bigger canvas silently fails.
+    const c = tex.image, n = c.width;
+    const g = c.getContext('2d');
+    g.fillStyle = ch.skin; g.fillRect(0, 0, n, n);
+    const s = Math.max(n / img.width, n / img.height);
+    g.drawImage(img, (n - img.width * s) / 2, (n - img.height * s) / 2, img.width * s, img.height * s);
+    tex.needsUpdate = true;
+  };
+  img.src = ch.img;
+  return tex;
+}
+
+function buildHead(ch) {
+  const group = new THREE.Group();     // positions / intro / switching
+  const spinner = new THREE.Group();   // user rotation
+  const jelly = new THREE.Group();     // squash & stretch
+  group.add(spinner); spinner.add(jelly);
+
+  const R = 1.6;
+  // Front hemisphere (+Z) with the face projected flat onto it
+  const front = new THREE.SphereGeometry(R, 64, 48, 0, Math.PI);
+  const pos = front.attributes.position, uv = front.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    uv.setXY(i, 0.5 + pos.getX(i) / (2 * R), 0.5 + pos.getY(i) / (2 * R));
+  }
+  const faceMat = new THREE.MeshStandardMaterial({ map: loadFaceTexture(ch), roughness: 0.7 });
+  const frontMesh = new THREE.Mesh(front, faceMat);
+
+  // Back hemisphere: hair
+  const back = new THREE.SphereGeometry(R, 64, 48, Math.PI, Math.PI);
+  const backMesh = new THREE.Mesh(back, new THREE.MeshStandardMaterial({ color: ch.hair, roughness: 0.9 }));
+
+  const skull = new THREE.Group(); skull.add(frontMesh, backMesh);
+  skull.scale.set(1, 1.25, 1);
+  jelly.add(skull);
+
+  // Neck + low-poly collar
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.8, 1, 24),
+    new THREE.MeshStandardMaterial({ color: ch.skin, roughness: 0.8 }));
+  neck.position.y = -2.1; jelly.add(neck);
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.0, 0.45, 8),
+    new THREE.MeshStandardMaterial({ color: '#9a9a9a', flatShading: true, roughness: 0.6 }));
+  collar.position.y = -2.55; jelly.add(collar);
+
+  jelly.position.y = 0.4;
+  group.userData = { ch, spinner, jelly, hit: [frontMesh, backMesh, neck, collar],
+    vel: new THREE.Vector2(), wobble: 0, wobbleV: 0 };
+  scene.add(group);
+  return group;
+}
+
+const heads = CHARACTERS.map(buildHead);
+let current = 0;
+
+// ---------- INTRO + SWITCH ANIMATION ----------
+const ease = t => 1 - Math.pow(1 - t, 3);
+const anims = []; // {head, from, to, rotFrom, rotTo, t0, dur}
+function animate(head, from, to, spins, dur, delay = 0) {
+  anims.push({ head, from: from.clone(), to: to.clone(), spins, t0: performance.now() + delay, dur });
+}
+
+heads.forEach((h, i) => { h.visible = i === 0; });
+animate(heads[0], new THREE.Vector3(0, 0, -40), new THREE.Vector3(0, 0, 0), 3, 2600);
+setTimeout(() => document.getElementById('title').classList.add('show'), 300);
+updateLabel();
+
+let switching = false;
+function switchTo(dir) {
+  if (switching || anims.length) return;
+  switching = true;
+  const out = heads[current];
+  current = (current + dir + heads.length) % heads.length;
+  const inn = heads[current];
+  animate(out, out.position, new THREE.Vector3(-dir * 12, 0, -6), -dir * 1, 700);
+  inn.visible = true;
+  inn.userData.spinner.quaternion.identity(); inn.userData.vel.set(0, 0);
+  animate(inn, new THREE.Vector3(dir * 12, 0, -6), new THREE.Vector3(0, 0, 0), -dir * 2, 1000, 150);
+  setTimeout(() => { out.visible = false; switching = false; }, 1200);
+  updateLabel();
+}
+function updateLabel() { document.getElementById('label').textContent = CHARACTERS[current].name; }
+document.getElementById('prev').onclick = () => switchTo(-1);
+document.getElementById('next').onclick = () => switchTo(1);
+addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') switchTo(-1);
+  if (e.key === 'ArrowRight') switchTo(1);
+});
+
+// ---------- INTERACTION ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+const canvas = renderer.domElement;
+let dragging = false, moved = 0, last = { x: 0, y: 0, t: 0 };
+const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0), AZ = new THREE.Vector3(0, 0, 1);
+const tmpQ = new THREE.Quaternion();
+
+function hitHead(e) {
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  return ray.intersectObjects(heads[current].userData.hit, false).length > 0;
+}
+function rotateBy(h, dx, dy) {
+  const sp = h.userData.spinner;
+  tmpQ.setFromAxisAngle(AY, dx); sp.quaternion.premultiply(tmpQ);
+  tmpQ.setFromAxisAngle(AX, dy); sp.quaternion.premultiply(tmpQ);
+}
+
+canvas.addEventListener('pointerdown', e => {
+  if (anims.length) return;
+  dragging = true; moved = 0; last = { x: e.clientX, y: e.clientY, t: performance.now() };
+  heads[current].userData.vel.set(0, 0);
+  canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
+});
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) { canvas.classList.toggle('hover', hitHead(e)); return; }
+  const now = performance.now(), dt = Math.max(1, now - last.t);
+  const dx = (e.clientX - last.x) * 0.01, dy = (e.clientY - last.y) * 0.01;
+  moved += Math.abs(e.clientX - last.x) + Math.abs(e.clientY - last.y);
+  const h = heads[current];
+  rotateBy(h, dx, dy);
+  h.userData.vel.lerp(new THREE.Vector2(dx / dt * 16, dy / dt * 16), 0.6); // rad per frame
+  last = { x: e.clientX, y: e.clientY, t: now };
+});
+canvas.addEventListener('pointerup', e => {
+  if (!dragging) return;
+  dragging = false; canvas.classList.remove('dragging');
+  const h = heads[current];
+  if (performance.now() - last.t > 80) h.userData.vel.set(0, 0); // stopped before release
+  if (moved < 6 && hitHead(e)) {
+    // little "boing" then go
+    h.userData.wobbleV += 0.25;
+    setTimeout(() => { location.href = CHARACTERS[current].url; }, 250);
+  }
+});
+
+// ---------- LOOP ----------
+const clock = new THREE.Clock();
+const identity = new THREE.Quaternion();
+function tick() {
+  const now = performance.now();
+  const t = clock.getElapsedTime();
+
+  for (let i = anims.length - 1; i >= 0; i--) {
+    const a = anims[i];
+    const p = Math.min(1, Math.max(0, (now - a.t0) / a.dur));
+    const k = ease(p);
+    a.head.position.lerpVectors(a.from, a.to, k);
+    a.head.rotation.y = (1 - k) * a.spins * Math.PI * 2;
+    if (p >= 1) { a.head.rotation.y = 0; anims.splice(i, 1); }
+  }
+
+  heads.forEach(h => {
+    if (!h.visible) return;
+    const u = h.userData;
+    if (!dragging || h !== heads[current]) {
+      const speed = u.vel.length();
+      if (speed > 0.0005) {
+        rotateBy(h, u.vel.x, u.vel.y);
+        u.vel.multiplyScalar(speed > 0.15 ? 0.992 : 0.95); // fast flicks keep spinning longer
+      } else {
+        u.spinner.quaternion.slerp(identity, 0.04); // settle back to face the camera
+      }
+    }
+    // Jelly spring: driven by spin speed
+    const target = Math.min(u.vel.length() * 0.8, 0.25);
+    u.wobbleV += (target - u.wobble) * 0.15; u.wobbleV *= 0.85; u.wobble += u.wobbleV;
+    u.jelly.scale.set(1 + u.wobble, 1 - u.wobble * 0.6, 1 + u.wobble);
+    // Idle float
+    u.jelly.position.y = 0.4 + Math.sin(t * 1.5) * 0.08;
+  });
+
+  bgTex.offset.x = t * 0.02; bgTex.offset.y = t * 0.01;
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+tick();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
