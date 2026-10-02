@@ -49,9 +49,9 @@ import * as THREE from 'three';
 
 // ---------- CONFIG ----------
 const CHARACTERS = [
-  { name: 'BILL JUMPS',      img: 'img/gates.webp', hair: '#6b4a32', skin: '#e8b99a',
+  { name: 'BILL JUMPS',      img: 'img/gates.webp', hair: '#6b4a32',
     url: 'https://gilabarreto.github.io/bill-jumps/' },
-  { name: 'SPACE MUSKETEER', img: 'img/musk.webp', hair: '#2a211c', skin: '#e6b596',
+  { name: 'SPACE MUSKETEER', img: 'img/musk.webp', hair: '#2a211c',
     url: 'https://gilabarreto.github.io/space-musketeer/' },
 ];
 
@@ -91,78 +91,91 @@ const bg = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), new THREE.MeshBasicMa
 bg.position.z = -15; scene.add(bg);
 
 // ---------- HEAD BUILDER ----------
-function placeholderFace(ch) {
-  const c = document.createElement('canvas'); c.width = c.height = 512;
+// The photo *is* the head: a grid over the image, pushed out in z by each
+// pixel's distance to the transparent edge, so the silhouette (hair, ears,
+// chin) inflates into a rounded shell. The back is the same shape in hair color.
+const N = 128, SIZE = 4, DEPTH = 1.2, BACK = 0.9;
+
+async function loadImage(src) {
+  const img = new Image(); img.src = src; await img.decode(); return img;
+}
+
+// Distance (in grid cells) from each opaque pixel to the nearest transparent one
+function edgeDistance(img) {
+  const W = N + 1, c = document.createElement('canvas'); c.width = c.height = W;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0, W, W);
+  const a = g.getImageData(0, 0, W, W).data, d = new Float32Array(W * W);
+  for (let i = 0; i < d.length; i++) d[i] = a[i * 4 + 3] > 127 ? 1e9 : 0;
+  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= W) ? 0 : d[y * W + x];
+  const relax = (x, y, steps) => {
+    const i = y * W + x;
+    for (const [dx, dy, w] of steps) d[i] = Math.min(d[i], at(x + dx, y + dy) + w);
+  };
+  // Two-pass chamfer distance transform
+  const fwd = [[-1, 0, 1], [0, -1, 1], [-1, -1, Math.SQRT2], [1, -1, Math.SQRT2]];
+  const bwd = [[1, 0, 1], [0, 1, 1], [1, 1, Math.SQRT2], [-1, 1, Math.SQRT2]];
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (d[y * W + x]) relax(x, y, fwd);
+  for (let y = W - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) if (d[y * W + x]) relax(x, y, bwd);
+  return d;
+}
+
+function inflatedGeometry(d) {
+  // PlaneGeometry vertices run row by row from the top-left, same order as d
+  const geo = new THREE.PlaneGeometry(SIZE, SIZE, N, N);
+  const pos = geo.attributes.position, max = Math.max(...d);
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.max(0, d[i] - 1) / (max - 1);       // 0 on the edge ring, 1 at the center
+    pos.setZ(i, DEPTH * Math.sqrt(1 - (1 - t) ** 2));  // round profile: steep edge, flat face
+  }
+  // Drop fully transparent triangles so the raycaster can't click empty corners
+  const idx = geo.index.array, keep = [];
+  for (let i = 0; i < idx.length; i += 3) {
+    if (d[idx[i]] || d[idx[i + 1]] || d[idx[i + 2]]) keep.push(idx[i], idx[i + 1], idx[i + 2]);
+  }
+  geo.setIndex(keep);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function silhouette(img, color) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
   const g = c.getContext('2d');
-  g.fillStyle = ch.skin; g.fillRect(0, 0, 512, 512);
-  g.fillStyle = ch.hair; g.fillRect(0, 0, 512, 120);
-  g.fillStyle = '#fff'; g.beginPath(); g.ellipse(190, 230, 34, 24, 0, 0, 7); g.ellipse(322, 230, 34, 24, 0, 0, 7); g.fill();
-  g.fillStyle = '#3a6fb0'; g.beginPath(); g.arc(190, 232, 14, 0, 7); g.arc(322, 232, 14, 0, 7); g.fill();
-  g.strokeStyle = '#a0634a'; g.lineWidth = 8; g.beginPath(); g.arc(256, 330, 50, 0.2, Math.PI - 0.2); g.stroke();
-  g.fillStyle = '#000'; g.font = '20px "Press Start 2P", monospace'; g.textAlign = 'center';
-  g.fillText('add ' + ch.img, 256, 460);
+  g.drawImage(img, 0, 0, 256, 256);
+  g.globalCompositeOperation = 'source-in'; g.fillStyle = color; g.fillRect(0, 0, 256, 256);
   return c;
 }
 
-function loadFaceTexture(ch) {
-  const tex = new THREE.CanvasTexture(placeholderFace(ch));
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const img = new Image();
-  img.onload = () => {
-    // Compose over skin tone so transparent PNGs blend into the head.
-    // Draw into the placeholder's own canvas: once uploaded, the GPU texture
-    // can't change size, so swapping in a bigger canvas silently fails.
-    const c = tex.image, n = c.width;
-    const g = c.getContext('2d');
-    g.fillStyle = ch.skin; g.fillRect(0, 0, n, n);
-    const s = Math.max(n / img.width, n / img.height);
-    g.drawImage(img, (n - img.width * s) / 2, (n - img.height * s) / 2, img.width * s, img.height * s);
-    tex.needsUpdate = true;
-  };
-  img.src = ch.img;
-  return tex;
+function texture(src) {
+  const t = src instanceof HTMLCanvasElement ? new THREE.CanvasTexture(src) : new THREE.Texture(src);
+  t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true;
+  return t;
 }
 
-function buildHead(ch) {
+function buildHead(ch, img) {
   const group = new THREE.Group();     // positions / intro / switching
   const spinner = new THREE.Group();   // user rotation
   const jelly = new THREE.Group();     // squash & stretch
   group.add(spinner); spinner.add(jelly);
 
-  const R = 1.6;
-  // Front hemisphere (+Z) with the face projected flat onto it
-  const front = new THREE.SphereGeometry(R, 64, 48, 0, Math.PI);
-  const pos = front.attributes.position, uv = front.attributes.uv;
-  for (let i = 0; i < pos.count; i++) {
-    uv.setXY(i, 0.5 + pos.getX(i) / (2 * R), 0.5 + pos.getY(i) / (2 * R));
-  }
-  const faceMat = new THREE.MeshStandardMaterial({ map: loadFaceTexture(ch), roughness: 0.7 });
-  const frontMesh = new THREE.Mesh(front, faceMat);
+  const front = inflatedGeometry(edgeDistance(img));
+  const frontMesh = new THREE.Mesh(front,
+    new THREE.MeshStandardMaterial({ map: texture(img), alphaTest: 0.5, roughness: 0.7 }));
 
-  // Back hemisphere: hair
-  const back = new THREE.SphereGeometry(R, 64, 48, Math.PI, Math.PI);
-  const backMesh = new THREE.Mesh(back, new THREE.MeshStandardMaterial({ color: ch.hair, roughness: 0.9 }));
+  // Mirrored in z; DoubleSide lets three.js flip the normals the mirror inverted
+  const back = front.clone(); back.scale(1, 1, -BACK);
+  const backMesh = new THREE.Mesh(back, new THREE.MeshStandardMaterial({
+    map: texture(silhouette(img, ch.hair)), alphaTest: 0.5, roughness: 0.9, side: THREE.DoubleSide }));
 
-  const skull = new THREE.Group(); skull.add(frontMesh, backMesh);
-  skull.scale.set(1, 1.25, 1);
-  jelly.add(skull);
-
-  // Neck + low-poly collar
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.8, 1, 24),
-    new THREE.MeshStandardMaterial({ color: ch.skin, roughness: 0.8 }));
-  neck.position.y = -2.1; jelly.add(neck);
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.0, 0.45, 8),
-    new THREE.MeshStandardMaterial({ color: '#9a9a9a', flatShading: true, roughness: 0.6 }));
-  collar.position.y = -2.55; jelly.add(collar);
-
-  jelly.position.y = 0.4;
-  group.userData = { ch, spinner, jelly, hit: [frontMesh, backMesh, neck, collar],
+  jelly.add(frontMesh, backMesh);
+  group.userData = { ch, spinner, jelly, hit: [frontMesh, backMesh],
     vel: new THREE.Vector2(), wobble: 0, wobbleV: 0 };
   scene.add(group);
   return group;
 }
 
-const heads = CHARACTERS.map(buildHead);
+const images = await Promise.all(CHARACTERS.map(ch => loadImage(ch.img)));
+const heads = CHARACTERS.map((ch, i) => buildHead(ch, images[i]));
 let current = 0;
 
 // ---------- INTRO + SWITCH ANIMATION ----------
