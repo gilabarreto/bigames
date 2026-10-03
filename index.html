@@ -32,10 +32,7 @@
   @media (max-width: 600px) { .arrow { width: 48px; height: 48px; font-size: 16px; } }
 </style>
 <script type="importmap">
-{ "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-} }
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
 </head>
 <body>
@@ -49,8 +46,6 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 // ---------- CONFIG ----------
 const CHARACTERS = [
@@ -58,8 +53,9 @@ const CHARACTERS = [
     url: 'https://gilabarreto.github.io/bill-jumps/' },
   { name: 'SPACE MUSKETEER', img: 'img/musk.webp',
     url: 'https://gilabarreto.github.io/space-musketeer/' },
-  // A real 3D model wins over the photo-fitted head; no url until Guess Who exists
-  { name: 'GUESS WHO · EM BREVE', model: 'img/mark.glb' },
+  // No url until the game exists: clicking does nothing
+  { name: 'GUESS WHO · EM BREVE',   img: 'img/mark.webp' },
+  { name: 'MINESWEEPER · EM BREVE', img: 'img/trump.webp' },
 ];
 
 // ---------- SCENE ----------
@@ -106,8 +102,8 @@ bg.position.z = -15; scene.add(bg);
 // at the silhouette edge and fade into the hair color behind.
 const S = 256, K = 4 / S;             // canvas size, world units per pixel
 const ROWS = 34, COLS = 40;           // low-poly resolution
-// ponytail: ear band and face depths are tuned on Gates/Musk; per-character overrides if a new face needs them
-const EAR = [0.44, 0.72], FRONT = 0.85, BACK = 1.2;
+// ponytail: face depths are tuned on Gates/Musk; per-character overrides if a new face needs them
+const FRONT = 0.85, BACK = 1.2;
 
 async function loadImage(src) {
   const img = new Image(); img.src = src; await img.decode(); return img;
@@ -129,8 +125,15 @@ function silhouetteProfile(px) {
     rows.push(l < 0 ? null : { c: (l + r) / 2, hw: (r - l) / 2 });
   }
   const top = rows.findIndex(Boolean), bottom = S - 1 - [...rows].reverse().findIndex(Boolean);
-  // Ears widen the silhouette; bridge the ear band so the skull underneath stays smooth
-  const y0 = Math.round(top + EAR[0] * (bottom - top)), y1 = Math.round(top + EAR[1] * (bottom - top));
+  // Ears widen the silhouette; bridge the ear band so the skull underneath stays smooth.
+  // The band ends at the narrowest row just above and just below the ears.
+  const narrowest = (a, b) => {
+    let best = -1;
+    for (let y = Math.round(top + a * (bottom - top)); y <= Math.round(top + b * (bottom - top)); y++)
+      if (best < 0 || rows[y].hw < rows[best].hw) best = y;
+    return best;
+  };
+  const y0 = narrowest(0.36, 0.48), y1 = narrowest(0.68, 0.8);
   for (let y = y0 + 1; y < y1; y++) {
     const f = (y - y0) / (y1 - y0);
     rows[y] = { c: rows[y0].c + f * (rows[y1].c - rows[y0].c), hw: rows[y0].hw + f * (rows[y1].hw - rows[y0].hw) };
@@ -216,37 +219,23 @@ function ears(px, prof) {
   });
 }
 
-function buildHead(ch, asset) {
+function buildHead(ch, img) {
   const group = new THREE.Group();     // positions / intro / switching
   const spinner = new THREE.Group();   // user rotation
   const jelly = new THREE.Group();     // squash & stretch
   group.add(spinner); spinner.add(jelly);
 
-  let parts;
-  if (ch.model) {
-    const model = asset.scene, box = new THREE.Box3().setFromObject(model);
-    model.position.sub(box.getCenter(new THREE.Vector3()));
-    const wrap = new THREE.Group(); wrap.add(model);
-    wrap.rotation.y = -Math.PI / 2;  // this export faces +X; turn it to the camera
-    wrap.scale.setScalar(3.4 / box.getSize(new THREE.Vector3()).y);  // same height as the photo heads
-    jelly.add(wrap);
-    parts = [];
-    model.traverse(o => o.isMesh && parts.push(o));
-  } else {
-    const px = readPixels(asset), prof = silhouetteProfile(px);
-    parts = [new THREE.Mesh(headGeometry(px, prof), headMaterial(asset)), ...ears(px, prof)];
-    jelly.add(...parts);
-  }
+  const px = readPixels(img), prof = silhouetteProfile(px);
+  const parts = [new THREE.Mesh(headGeometry(px, prof), headMaterial(img)), ...ears(px, prof)];
+  jelly.add(...parts);
   group.userData = { ch, spinner, jelly, hit: parts,
     vel: new THREE.Vector2(), wobble: 0, wobbleV: 0 };
   scene.add(group);
   return group;
 }
 
-const gltf = new GLTFLoader().setDRACOLoader(
-  new DRACOLoader().setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/'));
-const assets = await Promise.all(CHARACTERS.map(ch => ch.model ? gltf.loadAsync(ch.model) : loadImage(ch.img)));
-const heads = CHARACTERS.map((ch, i) => buildHead(ch, assets[i]));
+const images = await Promise.all(CHARACTERS.map(ch => loadImage(ch.img)));
+const heads = CHARACTERS.map((ch, i) => buildHead(ch, images[i]));
 let current = 0;
 
 // ---------- INTRO + SWITCH ANIMATION ----------
