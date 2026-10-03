@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Billionaire Arcade</title>
+<title>Billionaire Games</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   :root { --bg1:#1b0f6b; --bg2:#2a1aa8; --accent:#ffd23f; --text:#fff; }
@@ -31,11 +31,14 @@
   .arrow:hover { transform: translateY(-50%) scale(1.1); }
   .arrow:active { transform: translateY(-50%) scale(.95); box-shadow: 1px 1px 0 #000; }
   #prev { left: 16px; } #next { right: 16px; }
-  #label { position: absolute; bottom: 80px; width: 100%; text-align: center; font-size: clamp(12px, 2.4vw, 20px);
+  #label { position: absolute; bottom: 80px; width: 100%; text-align: center; font-size: clamp(14px, 3vw, 28px);
     text-shadow: 3px 3px 0 #000; }
-  #hint { position: absolute; bottom: 32px; width: 100%; text-align: center; font-size: 10px; opacity: .7;
+  #hint { position: absolute; bottom: 32px; width: 100%; text-align: center; font-size: clamp(10px, 3vw, 14px); text-shadow: 3px 3px 0 #000;
     padding: 0 16px; line-height: 1.6; }
-  @media (max-width: 600px) { .arrow { width: 48px; height: 48px; font-size: 16px; } }
+  #credits { position: absolute; top: 24px; right: 24px; text-align: right; font-size: clamp(10px, 1.6vw, 18px);
+    line-height: 1.8; text-shadow: 3px 3px 0 #000; }
+  #credits b { color: var(--accent); }
+  @media (max-width: 600px) { #credits { top: 64px; } .arrow { width: 48px; height: 48px; font-size: 16px; } }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
@@ -44,26 +47,30 @@
 <body>
 <div id="bg"></div>
 <div id="ui">
-  <h1 id="title">BILLIONAIRE ARCADE</h1>
+  <h1 id="title">BILLIONAIRE GAMES</h1>
   <button class="arrow" id="prev" aria-label="Anterior">◀</button>
   <button class="arrow" id="next" aria-label="Próximo">▶</button>
   <div id="label"></div>
-  <div id="hint">ARRASTE PARA GIRAR · GIRE RÁPIDO PARA SPIN · CLIQUE NA CABEÇA PARA JOGAR</div>
+  <div id="credits">CREDITS<br><b id="worth"></b></div>
+  <div id="hint">CLICK THE BIG HEAD TO PLAY</div>
 </div>
 
 <script type="module">
 import * as THREE from 'three';
 
 // ---------- CONFIG ----------
+// forbes: key into worth.json (net worth in millions USD, refreshed daily by .github/workflows/worth.yml)
 const CHARACTERS = [
-  { name: 'BILL JUMPS',      img: 'img/gates.webp',
+  { name: 'BILL JUMPS',      img: 'img/gates.webp', forbes: 'bill-gates',
     url: 'https://gilabarreto.github.io/bill-jumps/' },
-  { name: 'SPACE MUSKETEER', img: 'img/musk.webp',
+  { name: 'SPACE MUSKETEER', img: 'img/musk.webp', forbes: 'elon-musk',
     url: 'https://gilabarreto.github.io/space-musketeer/' },
   // No url until the game exists: clicking does nothing
-  { name: 'GUESS WHO · EM BREVE',   img: 'img/mark.webp' },
-  { name: 'MINESWEEPER · EM BREVE', img: 'img/trump.webp' },
+  { name: 'GUESS WHO · EM BREVE',   img: 'img/mark.webp', forbes: 'mark-zuckerberg' },
+  { name: 'MINESWEEPER · EM BREVE', img: 'img/trump.webp', forbes: 'donald-trump' },
 ];
+let worth = {};
+fetch('worth.json').then(r => r.json()).then(w => { worth = w; updateLabel(); });
 
 // ---------- SCENE ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -92,7 +99,7 @@ function makeBgTile() {
   }
   g.font = 'bold 34px "Press Start 2P", monospace'; g.textAlign = 'center';
   g.fillStyle = '#4a7bff'; g.fillText('$$$', 128, 110);
-  g.fillStyle = '#ff4d4d'; g.font = 'bold 20px "Press Start 2P", monospace'; g.fillText('ARCADE', 128, 160);
+  g.fillStyle = '#ff4d4d'; g.font = 'bold 20px "Press Start 2P", monospace'; g.fillText('GAMES', 128, 160);
   return c.toDataURL();
 }
 document.getElementById('bg').style.backgroundImage = `url(${makeBgTile()})`;
@@ -272,7 +279,11 @@ function switchTo(dir) {
   setTimeout(() => { out.visible = false; switching = false; }, 1200);
   updateLabel();
 }
-function updateLabel() { document.getElementById('label').textContent = CHARACTERS[current].name; }
+function updateLabel() {
+  document.getElementById('label').textContent = CHARACTERS[current].name;
+  const m = worth[CHARACTERS[current].forbes];
+  document.getElementById('worth').textContent = m ? `$${(m / 1000).toFixed(m < 10000 ? 1 : 0)}B` : '';
+}
 document.getElementById('prev').onclick = () => switchTo(-1);
 document.getElementById('next').onclick = () => switchTo(1);
 addEventListener('keydown', e => {
