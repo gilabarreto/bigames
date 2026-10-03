@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Billionaire Games</title>
+  <meta name="description" content="Four retro games starring four billionaires. Spin a head, pick a game and play." />
+  <meta property="og:title" content="Billionaire Games" />
+  <meta property="og:description" content="Four retro games starring four billionaires. Spin a head, pick a game and play." />
+  <meta property="og:image" content="https://gilabarreto.github.io/bigames/og.png" />
+  <meta property="og:url" content="https://gilabarreto.github.io/bigames/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕹️</text></svg>" />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -122,14 +129,24 @@
       right: 16px;
     }
 
+    /* A real link to the current game, so keyboard and screen reader users can play too */
     #label {
+      pointer-events: auto;
+      color: inherit;
+      text-decoration: none;
       position: absolute;
+      left: 0;
       bottom: 80px;
       width: 100%;
       text-align: center;
       font-size: var(--title-size);
       font-weight: bold;
       text-shadow: 3px 3px 0 #000;
+    }
+
+    #label:focus-visible {
+      outline: 4px solid var(--accent);
+      outline-offset: 6px;
     }
 
     #hint {
@@ -190,9 +207,9 @@
   <div id="bg"></div>
   <div id="ui">
     <h1 id="title">BILLIONAIRE GAMES</h1>
-    <button class="arrow" id="prev" aria-label="Anterior">◀</button>
-    <button class="arrow" id="next" aria-label="Próximo">▶</button>
-    <div id="label"></div>
+    <button class="arrow" id="prev" aria-label="Previous game">◀</button>
+    <button class="arrow" id="next" aria-label="Next game">▶</button>
+    <a id="label"></a>
     <div id="credits">CREDITS<br><b id="worth"></b></div>
     <div id="hint">CLICK THE BIG HEAD TO PLAY</div>
   </div>
@@ -211,8 +228,10 @@
         name: 'SPACE MUSKETEER', img: 'img/musk.webp', forbes: 'elon-musk',
         url: 'https://gilabarreto.github.io/space-musketeer/'
       },
-      // No url until the game exists: clicking does nothing
-      { name: 'WHO DIS', img: 'img/mark.webp', forbes: 'mark-zuckerberg' },
+      {
+        name: 'WHO DIS', img: 'img/mark.webp', forbes: 'mark-zuckerberg',
+        url: 'https://gilabarreto.github.io/who-dis/'
+      },
       {
         name: 'ALLMINE', img: 'img/trump.webp', forbes: 'donald-trump',
         url: 'https://gilabarreto.github.io/allmine/'
@@ -437,7 +456,9 @@
       updateLabel();
     }
     function updateLabel() {
-      document.getElementById('label').textContent = CHARACTERS[current].name;
+      const label = document.getElementById('label');
+      label.textContent = CHARACTERS[current].name;
+      label.href = CHARACTERS[current].url;
       const m = worth[CHARACTERS[current].forbes];
       document.getElementById('worth').textContent = m ? `$${(m / 1000).toFixed(m < 10000 ? 1 : 0)}B` : '';
     }
@@ -490,7 +511,7 @@
       if (moved < 6 && hitHead(e)) {
         // little "boing" then go
         h.userData.wobbleV += 0.25;
-        if (CHARACTERS[current].url) setTimeout(() => { location.href = CHARACTERS[current].url; }, 250);
+        setTimeout(() => { location.href = CHARACTERS[current].url; }, 250);
       }
     });
 
