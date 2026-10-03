@@ -448,11 +448,15 @@
       const out = heads[current];
       current = (current + dir + heads.length) % heads.length;
       const inn = heads[current];
-      animate(out, out.position, new THREE.Vector3(-dir * 12, 0, -6), -dir * 1, 700);
+      // Just past the screen edge at z = -6 (15 units from the camera), plus a head's width,
+      // so heads fully leave and enter off-screen on any aspect ratio
+      const side = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 15 * camera.aspect + 3;
+      animate(out, out.position, new THREE.Vector3(-dir * side, 0, -6), -dir * 1, 700);
       inn.visible = true;
       inn.userData.spinner.quaternion.identity(); inn.userData.vel.set(0, 0);
-      animate(inn, new THREE.Vector3(dir * 12, 0, -6), new THREE.Vector3(0, 0, 0), -dir * 2, 1000, 150);
-      setTimeout(() => { out.visible = false; switching = false; }, 1200);
+      animate(inn, new THREE.Vector3(dir * side, 0, -6), new THREE.Vector3(0, 0, 0), -dir * 2, 1000, 150);
+      setTimeout(() => { out.visible = false; }, 700);
+      setTimeout(() => { switching = false; }, 1200);
       updateLabel();
     }
     function updateLabel() {
