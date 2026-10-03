@@ -32,7 +32,10 @@
   @media (max-width: 600px) { .arrow { width: 48px; height: 48px; font-size: 16px; } }
 </style>
 <script type="importmap">
-{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
 </script>
 </head>
 <body>
@@ -46,6 +49,8 @@
 
 <script type="module">
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 // ---------- CONFIG ----------
 const CHARACTERS = [
@@ -53,6 +58,8 @@ const CHARACTERS = [
     url: 'https://gilabarreto.github.io/bill-jumps/' },
   { name: 'SPACE MUSKETEER', img: 'img/musk.webp',
     url: 'https://gilabarreto.github.io/space-musketeer/' },
+  // A real 3D model wins over the photo-fitted head; no url until Guess Who exists
+  { name: 'GUESS WHO · EM BREVE', model: 'img/mark.glb' },
 ];
 
 // ---------- SCENE ----------
@@ -209,23 +216,37 @@ function ears(px, prof) {
   });
 }
 
-function buildHead(ch, img) {
+function buildHead(ch, asset) {
   const group = new THREE.Group();     // positions / intro / switching
   const spinner = new THREE.Group();   // user rotation
   const jelly = new THREE.Group();     // squash & stretch
   group.add(spinner); spinner.add(jelly);
 
-  const px = readPixels(img), prof = silhouetteProfile(px);
-  const parts = [new THREE.Mesh(headGeometry(px, prof), headMaterial(img)), ...ears(px, prof)];
-  jelly.add(...parts);
+  let parts;
+  if (ch.model) {
+    const model = asset.scene, box = new THREE.Box3().setFromObject(model);
+    model.position.sub(box.getCenter(new THREE.Vector3()));
+    const wrap = new THREE.Group(); wrap.add(model);
+    wrap.rotation.y = -Math.PI / 2;  // this export faces +X; turn it to the camera
+    wrap.scale.setScalar(3.4 / box.getSize(new THREE.Vector3()).y);  // same height as the photo heads
+    jelly.add(wrap);
+    parts = [];
+    model.traverse(o => o.isMesh && parts.push(o));
+  } else {
+    const px = readPixels(asset), prof = silhouetteProfile(px);
+    parts = [new THREE.Mesh(headGeometry(px, prof), headMaterial(asset)), ...ears(px, prof)];
+    jelly.add(...parts);
+  }
   group.userData = { ch, spinner, jelly, hit: parts,
     vel: new THREE.Vector2(), wobble: 0, wobbleV: 0 };
   scene.add(group);
   return group;
 }
 
-const images = await Promise.all(CHARACTERS.map(ch => loadImage(ch.img)));
-const heads = CHARACTERS.map((ch, i) => buildHead(ch, images[i]));
+const gltf = new GLTFLoader().setDRACOLoader(
+  new DRACOLoader().setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/'));
+const assets = await Promise.all(CHARACTERS.map(ch => ch.model ? gltf.loadAsync(ch.model) : loadImage(ch.img)));
+const heads = CHARACTERS.map((ch, i) => buildHead(ch, assets[i]));
 let current = 0;
 
 // ---------- INTRO + SWITCH ANIMATION ----------
@@ -304,7 +325,7 @@ canvas.addEventListener('pointerup', e => {
   if (moved < 6 && hitHead(e)) {
     // little "boing" then go
     h.userData.wobbleV += 0.25;
-    setTimeout(() => { location.href = CHARACTERS[current].url; }, 250);
+    if (CHARACTERS[current].url) setTimeout(() => { location.href = CHARACTERS[current].url; }, 250);
   }
 });
 
