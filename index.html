@@ -10,7 +10,13 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; overflow: hidden; background: var(--bg1); color: var(--text);
     font-family: 'Press Start 2P', monospace; }
-  canvas { display: block; touch-action: none; cursor: grab; }
+  /* Scrolling tile lives in CSS: a transform animation runs on the compositor,
+     where a full-screen textured plane cost more per frame than all the heads */
+  #bg { position: fixed; top: calc(-1 * var(--tile)); left: 0;
+    width: calc(100% + 2 * var(--tile)); height: calc(100% + var(--tile));
+    background-size: var(--tile) var(--tile); animation: drift 100s linear infinite; }
+  @keyframes drift { to { transform: translate(calc(-2 * var(--tile)), var(--tile)); } }
+  canvas { position: relative; display: block; touch-action: none; cursor: grab; }
   canvas.dragging { cursor: grabbing; }
   canvas.hover { cursor: pointer; }
   #ui { position: fixed; inset: 0; pointer-events: none; }
@@ -36,6 +42,7 @@
 </script>
 </head>
 <body>
+<div id="bg"></div>
 <div id="ui">
   <h1 id="title">BILLIONAIRE ARCADE</h1>
   <button class="arrow" id="prev" aria-label="Anterior">◀</button>
@@ -59,11 +66,11 @@ const CHARACTERS = [
 ];
 
 // ---------- SCENE ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-document.body.prepend(renderer.domElement);
+document.getElementById('bg').after(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 200);
@@ -74,7 +81,8 @@ const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(3, 4, 6)
 const rim = new THREE.DirectionalLight(0x8899ff, 0.8); rim.position.set(-4, 2, -5); scene.add(rim);
 
 // Tiled background (original pattern)
-function makeBgTexture() {
+await document.fonts.load('20px "Press Start 2P"');  // else the tile bakes in the fallback font
+function makeBgTile() {
   const c = document.createElement('canvas'); c.width = c.height = 256;
   const g = c.getContext('2d');
   g.fillStyle = '#1b0f6b'; g.fillRect(0, 0, 256, 256);
@@ -85,13 +93,13 @@ function makeBgTexture() {
   g.font = 'bold 34px "Press Start 2P", monospace'; g.textAlign = 'center';
   g.fillStyle = '#4a7bff'; g.fillText('$$$', 128, 110);
   g.fillStyle = '#ff4d4d'; g.font = 'bold 20px "Press Start 2P", monospace'; g.fillText('ARCADE', 128, 160);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(6, 4); t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  return c.toDataURL();
 }
-const bgTex = makeBgTexture();
-const bg = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), new THREE.MeshBasicMaterial({ map: bgTex }));
-bg.position.z = -15; scene.add(bg);
+document.getElementById('bg').style.backgroundImage = `url(${makeBgTile()})`;
+// Same on-screen tile size the old 3D plane had: 10 world units at 24 from the camera
+const sizeTile = () => document.documentElement.style.setProperty('--tile',
+  `${Math.round(innerHeight * 10 / (2 * 24 * Math.tan(THREE.MathUtils.degToRad(20))))}px`);
+sizeTile();
 
 // ---------- HEAD BUILDER ----------
 // A closed low-poly head volume fitted to the photo, following img2threejs'
@@ -354,7 +362,6 @@ function tick() {
     u.jelly.position.y = 0.4 + Math.sin(t * 1.5) * 0.08;
   });
 
-  bgTex.offset.x = t * 0.02; bgTex.offset.y = t * 0.01;
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
@@ -363,6 +370,7 @@ tick();
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  sizeTile();
 });
 </script>
 </body>
